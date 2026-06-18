@@ -130,7 +130,7 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 - `a` (제외 margin) `QSpinBox` — 변경 시 현재 라인의 프로파일을 즉시 재계산.
 - 라인 좌표 `QDoubleSpinBox` 4개(x0,y0,x1,y1), 사각형 좌표 4개(x0,y0,x1,y1) — 드래그로 그린 값이 자동
   반영되고, 직접 타이핑해서 미세 조정도 가능 (양방향 동기화, 무한 루프 방지를 위해 갱신 중 `blockSignals` 사용).
-- 읽기 전용 라벨: Signal, Background mean, Noise, Area(px), CNR.
+- 읽기 전용 라벨: Signal, Background mean, Noise(std), Noise(max-min), Rect min, Rect mean, Area(px), CNR.
 - "Run Batch" 버튼: 라인과 사각형이 모두 설정된 경우에만 활성화.
 
 ## 6. Signal/Slot 매핑
@@ -172,7 +172,7 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 
 ## 8. 배치 결과 팝업 (`gui/results_dialog.py` — `ResultsDialog`)
 
-- `QTableWidget` 컬럼: filename, signal, background_mean, noise, area_px, cnr, error.
+- `QTableWidget` 컬럼: filename, signal, background_mean, noise, noise_min_max, rect_min, rect_mean, area_px, cnr, error.
 - `error`가 있는 행은 배경색으로 강조(예: 빨간 배경) — 값이 비어 있는 게 아니라 실패했다는 것을 표시.
 - "Export to Excel" 버튼 → `QFileDialog.getSaveFileName` → `export.export_to_xlsx`. 성공/실패 각각
   `QMessageBox.information`/`critical`로 안내.

@@ -61,9 +61,16 @@ def compute_noise(image: np.ndarray, rect: Rect) -> dict:
     roi = image[ya:yb, xa:xb]
     area_px = roi.size
     noise = float(np.std(roi)) if area_px else float("nan")
+    rect_min = float(roi.min()) if area_px else float("nan")
+    rect_max = float(roi.max()) if area_px else float("nan")
+    rect_mean = float(roi.mean()) if area_px else float("nan")
+    noise_min_max = rect_max - rect_min if area_px else float("nan")
 
     return {
         "noise": noise,
+        "noise_min_max": noise_min_max,
+        "rect_min": rect_min,
+        "rect_mean": rect_mean,
         "area_px": area_px,
         "rect_clipped": (xa, ya, xb, yb),
         "n_pixels": area_px,
@@ -87,6 +94,9 @@ def measure(image: np.ndarray, line: tuple[Point, Point], rect: Rect, exclusion_
         "signal": sb["signal"],
         "background_mean": sb["background_mean"],
         "noise": noise_info["noise"],
+        "noise_min_max": noise_info["noise_min_max"],
+        "rect_min": noise_info["rect_min"],
+        "rect_mean": noise_info["rect_mean"],
         "area_px": noise_info["area_px"],
         "cnr": cnr,
         "idx_min": sb["idx_min"],

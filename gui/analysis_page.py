@@ -161,11 +161,17 @@ class AnalysisPage(QWidget):
         self.signal_label = QLabel("-")
         self.background_label = QLabel("-")
         self.noise_label = QLabel("-")
+        self.noise_min_max_label = QLabel("-")
+        self.rect_min_label = QLabel("-")
+        self.rect_mean_label = QLabel("-")
         self.area_label = QLabel("-")
         self.cnr_label = QLabel("-")
         results_form.addRow("Signal", self.signal_label)
         results_form.addRow("Background mean", self.background_label)
         results_form.addRow("Noise (std)", self.noise_label)
+        results_form.addRow("Noise (max-min)", self.noise_min_max_label)
+        results_form.addRow("Rect min", self.rect_min_label)
+        results_form.addRow("Rect mean", self.rect_mean_label)
         results_form.addRow("Area (px)", self.area_label)
         results_form.addRow("CNR", self.cnr_label)
         right_layout.addWidget(results_box)
@@ -349,7 +355,7 @@ class AnalysisPage(QWidget):
         image = self.current_loaded.raw
         a = self.margin_spin.value()
 
-        signal = background_mean = noise = cnr = float("nan")
+        signal = background_mean = noise = noise_min_max = rect_min = rect_mean = cnr = float("nan")
         area_px = None
 
         if line is not None:
@@ -364,6 +370,9 @@ class AnalysisPage(QWidget):
         if rect is not None:
             noise_info = compute_noise(image, rect)
             noise = noise_info["noise"]
+            noise_min_max = noise_info["noise_min_max"]
+            rect_min = noise_info["rect_min"]
+            rect_mean = noise_info["rect_mean"]
             area_px = noise_info["area_px"]
 
         if line is not None and rect is not None:
@@ -372,6 +381,11 @@ class AnalysisPage(QWidget):
         self.signal_label.setText("-" if line is None else f"{signal:.4f}")
         self.background_label.setText("-" if line is None else f"{background_mean:.4f}")
         self.noise_label.setText("-" if rect is None or np.isnan(noise) else f"{noise:.4f}")
+        self.noise_min_max_label.setText(
+            "-" if rect is None or np.isnan(noise_min_max) else f"{noise_min_max:.4f}"
+        )
+        self.rect_min_label.setText("-" if rect is None or np.isnan(rect_min) else f"{rect_min:.4f}")
+        self.rect_mean_label.setText("-" if rect is None or np.isnan(rect_mean) else f"{rect_mean:.4f}")
         self.area_label.setText("-" if area_px is None else str(area_px))
         if line is None or rect is None:
             self.cnr_label.setText("-")

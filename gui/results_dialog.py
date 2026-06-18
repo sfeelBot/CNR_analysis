@@ -15,7 +15,18 @@ from PyQt5.QtWidgets import (
 
 from export import export_to_xlsx
 
-COLUMNS = ["filename", "signal", "background_mean", "noise", "area_px", "cnr", "error"]
+COLUMNS = [
+    "filename",
+    "signal",
+    "background_mean",
+    "noise",
+    "noise_min_max",
+    "rect_min",
+    "rect_mean",
+    "area_px",
+    "cnr",
+    "error",
+]
 
 
 class ResultsDialog(QDialog):
