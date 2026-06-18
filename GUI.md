@@ -52,6 +52,28 @@ self.drag_target ∈ {"new", "p0", "p1", "move", None}   # 라인: p0/p1, 사각
   release를 기다리지 않고 드래그 중에도 계속 갱신된다.
 - `on_release`: `drag_target=None`으로 리셋, 다음 블리팅 사이클을 위해 배경 비트맵 재캡처.
 
+### 줌 / 팬 (마우스 휠 / 우클릭 드래그)
+줌(스크롤 휠)과 팬(우클릭 드래그)은 `self.mode`(navigate/line/rect)와 **무관하게 항상 동작**한다.
+라인/사각형 그리기는 좌클릭만 사용하므로 우클릭은 항상 비어 있어 팬에 할당했다.
+
+- `on_press`에서 `event.button == 3`(우클릭)이면 모드 분기보다 먼저 처리하여 `drag_target="pan"`으로
+  설정하고 그 자리에서 `return` — 라인/사각형 로직으로 내려가지 않음. 픽셀 좌표(`event.x, event.y`)를
+  `_pan_anchor_px`에 저장(데이터 좌표가 아님 — 아래 이유 참고).
+- `on_motion`에서 `drag_target == "pan"`이면 `_pan_by_pixels()` 호출: 이전 픽셀 위치와 현재 픽셀 위치를
+  **그 순간의 `ax.transData`**로 데이터 좌표로 변환해 델타를 구하고, `xlim`/`ylim`을 그만큼 평행이동한 뒤
+  anchor를 현재 픽셀 위치로 갱신. 매 스텝마다 픽셀 anchor를 갱신하는 이유: 팬 중에는 매 스텝마다
+  `set_xlim`/`set_ylim`이 `transData`를 바꾸므로, anchor를 데이터 좌표로 고정해두면 누적 오차/드리프트가
+  생긴다 — 픽셀 좌표는 뷰가 바뀌어도 불변이므로 이 문제가 없다.
+- `on_scroll`: 커서가 가리키는 데이터 좌표(`event.xdata, event.ydata`)를 중심으로 `xlim`/`ylim`을
+  `ZOOM_SCALE_PER_STEP`(기본 1.2) 비율로 확대/축소. `event.button == "up"`이면 확대(scale = 1/1.2),
+  `"down"`이면 축소(scale = 1.2). y축이 반전되어 있어도(`imshow` 기본 orientation) 동일한 공식이
+  성립하도록 "커서까지의 거리 × scale" 방식을 사용 — xlim/ylim의 대소 관계에 의존하지 않음.
+- 줌/팬은 뷰(`xlim`/`ylim`) 자체가 바뀌므로 블리팅을 쓸 수 없고 매번 `_refresh_background_and_render()`로
+  전체 redraw + 배경 재캡처를 한다.
+- 이미지 전환(`set_image`) 시 현재 줌/팬 상태(xlim/ylim)는 그대로 유지된다 — `set_image`는 `self.im`이
+  이미 있으면 `set_xlim`/`set_ylim`을 다시 호출하지 않고 `im.set_data()`만 교체하기 때문. 라인/사각형
+  좌표가 파일 전환 간 유지되는 것과 동일한 설계.
+
 ### Qt 시그널
 ```python
 line_changed = pyqtSignal(tuple, tuple)   # (p0, p1), pixel 좌표, drag 중 매 프레임 emit

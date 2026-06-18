@@ -13,6 +13,7 @@ from matplotlib.patches import Rectangle
 from PyQt5.QtCore import pyqtSignal
 
 HIT_TOLERANCE_PX = 8
+ZOOM_SCALE_PER_STEP = 1.2
 
 
 class ImageCanvas(FigureCanvasQTAgg):
@@ -35,6 +36,7 @@ class ImageCanvas(FigureCanvasQTAgg):
         self.mode = "navigate"
         self.drag_target = None
         self._move_anchor = None
+        self._pan_anchor_px = None
         self._bg = None
 
         self.line_artist = Line2D([], [], color="red", marker="o", markersize=4, linewidth=1.5)
@@ -47,6 +49,7 @@ class ImageCanvas(FigureCanvasQTAgg):
         self.mpl_connect("button_press_event", self.on_press)
         self.mpl_connect("motion_notify_event", self.on_motion)
         self.mpl_connect("button_release_event", self.on_release)
+        self.mpl_connect("scroll_event", self.on_scroll)
 
     # ---------- public API ----------
 
@@ -169,6 +172,14 @@ class ImageCanvas(FigureCanvasQTAgg):
     def on_press(self, event) -> None:
         if event.inaxes is not self.ax or event.xdata is None:
             return
+
+        if event.button == 3:
+            # Right-click drag pans the view, independent of the current mode
+            # (line/rect drawing always uses left-click, so this never conflicts).
+            self.drag_target = "pan"
+            self._pan_anchor_px = (event.x, event.y)
+            return
+
         x, y = event.xdata, event.ydata
 
         if self.mode == "line":
@@ -197,6 +208,11 @@ class ImageCanvas(FigureCanvasQTAgg):
     def on_motion(self, event) -> None:
         if self.drag_target is None or event.inaxes is not self.ax or event.xdata is None:
             return
+
+        if self.drag_target == "pan":
+            self._pan_by_pixels(event.x, event.y)
+            return
+
         x, y = self._clip_to_image(event.xdata, event.ydata)
 
         if self.mode == "line" and self._line is not None:
@@ -233,4 +249,35 @@ class ImageCanvas(FigureCanvasQTAgg):
     def on_release(self, event) -> None:
         self.drag_target = None
         self._move_anchor = None
+        self._pan_anchor_px = None
+        self._refresh_background_and_render()
+
+    def on_scroll(self, event) -> None:
+        if event.inaxes is not self.ax or event.xdata is None or self.im is None:
+            return
+        scale = 1 / ZOOM_SCALE_PER_STEP if event.button == "up" else ZOOM_SCALE_PER_STEP
+        x, y = event.xdata, event.ydata
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        new_xlim = (x - (x - xlim[0]) * scale, x + (xlim[1] - x) * scale)
+        new_ylim = (y - (y - ylim[0]) * scale, y + (ylim[1] - y) * scale)
+        self.ax.set_xlim(new_xlim)
+        self.ax.set_ylim(new_ylim)
+        self._refresh_background_and_render()
+
+    def _pan_by_pixels(self, event_x: float, event_y: float) -> None:
+        """Translate the view by the pixel delta since the last pan step, converted to
+        data units via the (currently unchanged-by-this-step) transData. See GUI.md
+        section 3 for why the anchor is reset to pixel coords every step rather than
+        kept in data coords (data coords would drift as xlim/ylim change mid-drag)."""
+        inv = self.ax.transData.inverted()
+        x0_data, y0_data = inv.transform(self._pan_anchor_px)
+        x1_data, y1_data = inv.transform((event_x, event_y))
+        dx, dy = x1_data - x0_data, y1_data - y0_data
+
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        self.ax.set_xlim(xlim[0] - dx, xlim[1] - dx)
+        self.ax.set_ylim(ylim[0] - dy, ylim[1] - dy)
+        self._pan_anchor_px = (event_x, event_y)
         self._refresh_background_and_render()
