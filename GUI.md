@@ -3,7 +3,25 @@
 > 최종 확인: 초기 구현 작성 시점 (코드와 함께 갱신할 것). 이 문서는 `gui/` 패키지의 구조와 동작을
 > 코드를 보지 않고도 파악할 수 있도록 설명한다. 위젯을 추가/변경하면 이 문서도 같이 갱신할 것.
 
-## 1. 레이아웃 개요 (`gui/main_window.py` — `MainWindow`)
+## 0. 최상위 구조: 폴더당 탭 (`gui/main_window.py` — `MainWindow`)
+
+`MainWindow(QMainWindow)`는 화면 전체를 차지하는 `QTabWidget` 하나만 담는다. 탭 하나 = 폴더 하나의
+독립적인 분석 세션(`AnalysisPage`, 1절 이하 전부 이 클래스 얘기). 탭끼리는 상태를 전혀 공유하지 않음 —
+서로 다른 폴더/확장자/라인/사각형/배치 결과를 동시에 열어둘 수 있다.
+
+- 탭바의 **마지막 탭은 항상 `"+"` 고정 탭** (`self._plus_widget`, 빈 `QWidget`). 닫기 버튼이 없도록
+  `tabBar().setTabButton(..., None)`으로 제거해 둠.
+- `"+"` 탭을 클릭하면(`tabs.currentChanged` 시그널에서 `self.tabs.widget(index) is self._plus_widget`로
+  식별) `StartupDialog`를 띄운다. 사용자가 폴더/확장자/(raw면) width·height를 선택하고 확인하면
+  `add_analysis_tab()`이 새 `AnalysisPage`를 만들어 `"+"` 탭 바로 앞에 삽입하고 그 탭으로 전환한다.
+  취소하면 `"+"` 탭에 머물지 않고 직전에 보고 있던 탭으로 복귀(`self._previous_index`에 저장해 둔 값 사용).
+- 탭은 닫기 가능(`setTabsClosable(True)`) — `"+"` 탭만 예외로 닫기 버튼이 없음. 탭을 닫으면 해당
+  `AnalysisPage`를 `deleteLater()`로 정리.
+- 앱 시작 시 첫 폴더는 `main.py`가 직접 `StartupDialog`를 한 번 띄워 받아온 뒤 `MainWindow` 생성 직후
+  `add_analysis_tab()`으로 첫 탭을 만든다 (이 첫 다이얼로그를 취소하면 앱 자체를 종료) — 이후 폴더
+  추가는 전부 `"+"` 탭을 통해서만 이루어진다.
+
+## 1. AnalysisPage 레이아웃 (`gui/analysis_page.py` — `AnalysisPage`, 탭 하나의 내용)
 
 `QSplitter` 기반 3분할:
 
@@ -15,11 +33,13 @@
 
 ## 2. 시작 흐름
 
-1. `main.py`가 `QApplication` 생성 후 `StartupDialog` 실행.
+1. `main.py`가 `QApplication` 생성 후 `StartupDialog` 실행 (앱 시작 시 첫 폴더 전용, 0절 참고).
 2. `StartupDialog`: 폴더 선택(`QFileDialog.getExistingDirectory`) + 확장자 콤보 + (raw인 경우) width/height
    입력. 폴더가 비었거나 raw인데 width/height가 0이면 OK 비활성화.
-3. 승인되면 `MainWindow`에 폴더/확장자/width/height를 넘겨 생성, 폴더 스캔 후 파일 목록 채움, 첫 파일 표시.
-4. 확장자/width/height는 시작 후에도 메인 윈도우 상단 컨트롤에서 언제든 변경 가능 (값 바뀌면 현재 이미지 재로딩).
+3. 승인되면 `MainWindow()`를 생성하고 `add_analysis_tab(folder, ext, width, height)`로 첫 탭을 만든다 —
+   내부적으로 새 `AnalysisPage`가 생성되어 폴더 스캔 후 파일 목록을 채우고 첫 파일을 표시.
+4. 확장자/width/height는 그 탭의 좌측 패널 컨트롤에서 언제든 변경 가능 (값 바뀌면 현재 이미지 재로딩).
+   다른 폴더를 더 열고 싶으면 탭바의 `"+"` 탭을 클릭 (0절).
 
 ## 3. 상호작용 상태 머신 (`gui/image_canvas.py` — `ImageCanvas`)
 
@@ -29,7 +49,7 @@
 ```
 self.mode ∈ {"navigate", "line", "rect"}
 ```
-모드는 메인 윈도우의 버튼 3개로 전환. 이미지를 바꿔도(`set_image`) 모드와 기존 라인/사각형 좌표는
+모드는 `AnalysisPage`의 버튼 3개로 전환. 이미지를 바꿔도(`set_image`) 모드와 기존 라인/사각형 좌표는
 유지된다 — 라인/사각형은 `ImageCanvas`의 영속 상태(`self._line`, `self._rect`)이며 `set_image`가
 이 상태를 절대 초기화하지 않는다. (즉, 폴더 내 다른 이미지로 넘어가도 같은 픽셀 좌표의 라인/사각형이
 그대로 보임 — 배치 처리가 "기준 이미지에서 그린 좌표를 재사용"하는 전제와 일치.)
@@ -105,7 +125,7 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 고정해 둘 수가 없기 때문. 프로파일 길이가 작아(이미지 대각선 길이 이하) 전체 redraw도 충분히 빠르다.
 드래그 반응성이 중요한 쪽은 `ImageCanvas`이며, 그쪽만 블리팅을 사용한다.
 
-## 5. 결과 표시 / 파라미터 패널 (`MainWindow` 내부)
+## 5. 결과 표시 / 파라미터 패널 (`AnalysisPage` 내부)
 
 - `a` (제외 margin) `QSpinBox` — 변경 시 현재 라인의 프로파일을 즉시 재계산.
 - 라인 좌표 `QDoubleSpinBox` 4개(x0,y0,x1,y1), 사각형 좌표 4개(x0,y0,x1,y1) — 드래그로 그린 값이 자동
@@ -114,6 +134,8 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 - "Run Batch" 버튼: 라인과 사각형이 모두 설정된 경우에만 활성화.
 
 ## 6. Signal/Slot 매핑
+
+### `AnalysisPage`
 
 | 시그널 | 슬롯 | 효과 |
 |---|---|---|
@@ -128,6 +150,13 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 | `rect_coord_spins[*].valueChanged` | `on_rect_coords_typed` | 타이핑된 좌표를 `canvas.set_rect`에 반영 |
 | `run_batch_btn.clicked` | `on_run_batch` | `batch.run_batch()` 실행 → `ResultsDialog` 표시 |
 | `display_min_spin/display_max_spin.valueChanged` | `on_display_range_typed` | `self.display_range` 갱신, 현재 이미지의 `display`만 재계산(디스크 재읽기 없음) 후 `canvas.set_image` |
+
+### `MainWindow` (탭 셸, 0절)
+
+| 시그널 | 슬롯 | 효과 |
+|---|---|---|
+| `tabs.currentChanged` | `on_current_tab_changed` | `"+"` 탭으로 전환됐는지 확인, 맞으면 `_handle_plus_clicked()` |
+| `tabs.tabCloseRequested` | `on_tab_close_requested` | 해당 `AnalysisPage` 탭 제거 + `deleteLater()` (`"+"` 탭은 무시) |
 
 ## 7. GUI 파라미터 ↔ 계산 함수 매핑
 

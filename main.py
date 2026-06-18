@@ -15,12 +15,8 @@ def main():
         sys.exit(0)
 
     values = startup.get_values()
-    window = MainWindow(
-        folder=values["folder"],
-        ext=values["ext"],
-        width=values["width"],
-        height=values["height"],
-    )
+    window = MainWindow()
+    window.add_analysis_tab(values["folder"], values["ext"], values["width"], values["height"])
     window.show()
 
     sys.exit(app.exec_())
