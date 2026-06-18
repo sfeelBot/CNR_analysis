@@ -58,11 +58,24 @@ EXT_LOADERS = {
 }
 
 
-def to_display_uint8(raw: np.ndarray) -> np.ndarray:
+def default_display_range(raw: np.ndarray) -> tuple[float, float]:
+    """1st/99th percentile of this array, used only to pick a one-time default
+    display range (see to_display_uint8). Falls back to min/max if the percentile
+    range is degenerate (e.g. a flat image)."""
     arr = raw.astype(np.float64)
     lo, hi = np.percentile(arr, [1, 99])
     if hi <= lo:
         lo, hi = float(arr.min()), float(arr.max())
+    return lo, hi
+
+
+def to_display_uint8(raw: np.ndarray, lo: float, hi: float) -> np.ndarray:
+    """Stretch raw -> uint8 for imshow using an explicit (lo, hi) range. The SAME
+    (lo, hi) must be passed for every image in a folder so that a given raw pixel
+    value always maps to the same displayed gray level across images (otherwise
+    each image would get its own auto-stretch and look inconsistently contrasted).
+    Callers get a sensible one-time default from default_display_range()."""
+    arr = raw.astype(np.float64)
     if hi <= lo:
         return np.zeros(arr.shape, dtype=np.uint8)
     stretched = np.clip((arr - lo) / (hi - lo), 0, 1) * 255
@@ -75,12 +88,14 @@ def load_image(
     width: int | None = None,
     height: int | None = None,
     allow_color_conversion: bool = False,
+    display_range: tuple[float, float] | None = None,
 ) -> LoadedImage:
     loader = EXT_LOADERS.get(ext.lower())
     if loader is None:
         raise ValueError(f"Unsupported extension '{ext}'")
     raw = loader(path, width, height, allow_color_conversion=allow_color_conversion)
-    display = to_display_uint8(raw)
+    lo, hi = display_range if display_range is not None else default_display_range(raw)
+    display = to_display_uint8(raw, lo, hi)
     h, w = raw.shape[:2]
     return LoadedImage(
         raw=raw,

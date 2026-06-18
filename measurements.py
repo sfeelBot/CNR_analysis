@@ -73,7 +73,7 @@ def compute_noise(image: np.ndarray, rect: Rect) -> dict:
 def compute_cnr(signal: float, background_mean: float, noise: float) -> float:
     if noise == 0 or np.isnan(noise):
         return float("nan")
-    return (signal - background_mean) / noise
+    return abs((signal - background_mean) / noise)
 
 
 def measure(image: np.ndarray, line: tuple[Point, Point], rect: Rect, exclusion_margin: int) -> dict:

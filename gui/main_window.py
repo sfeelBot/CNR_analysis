@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (
 )
 
 import batch
-from image_io import load_image
+from image_io import load_image, to_display_uint8, default_display_range
 from measurements import sample_line_profile, find_signal_and_background, compute_noise, compute_cnr
 from gui.image_canvas import ImageCanvas
 from gui.profile_panel import ProfilePanel
@@ -43,6 +43,7 @@ class MainWindow(QMainWindow):
         self.current_loaded = None
         self.files: list[str] = []
         self._dims_reload_pending = False
+        self.display_range: tuple[float, float] | None = None
 
         self._build_ui()
         self._wire_signals()
@@ -79,6 +80,17 @@ class MainWindow(QMainWindow):
         dims_form.addRow("Width", self.width_spin)
         dims_form.addRow("Height", self.height_spin)
         left_layout.addLayout(dims_form)
+
+        display_box = QGroupBox("Display Range (contrast)")
+        display_form = QFormLayout(display_box)
+        self.display_min_spin = QDoubleSpinBox()
+        self.display_max_spin = QDoubleSpinBox()
+        for s in (self.display_min_spin, self.display_max_spin):
+            s.setRange(0, 1_000_000)
+            s.setDecimals(1)
+        display_form.addRow("Min", self.display_min_spin)
+        display_form.addRow("Max", self.display_max_spin)
+        left_layout.addWidget(display_box)
 
         self.file_list = QListWidget()
         left_layout.addWidget(self.file_list, 1)
@@ -171,6 +183,8 @@ class MainWindow(QMainWindow):
         self.width_spin.valueChanged.connect(self.on_raw_dims_changed)
         self.height_spin.valueChanged.connect(self.on_raw_dims_changed)
         self.margin_spin.valueChanged.connect(self.recompute_and_redraw)
+        self.display_min_spin.valueChanged.connect(self.on_display_range_typed)
+        self.display_max_spin.valueChanged.connect(self.on_display_range_typed)
 
         self.mode_navigate_btn.toggled.connect(
             lambda checked: checked and self.canvas.set_mode("navigate")
@@ -214,6 +228,10 @@ class MainWindow(QMainWindow):
         is_raw = ext == ".raw"
         self.width_spin.setEnabled(is_raw)
         self.height_spin.setEnabled(is_raw)
+        # Different extensions can have wildly different native value ranges
+        # (e.g. 16-bit raw vs 8-bit bmp), so the frozen display range no longer
+        # applies -- let the next loaded file pick a fresh default.
+        self.display_range = None
         self._rescan_folder()
 
     def on_raw_dims_changed(self, _value) -> None:
@@ -257,13 +275,34 @@ class MainWindow(QMainWindow):
                 self.ext,
                 width=self.width_spin.value() if self.ext == ".raw" else None,
                 height=self.height_spin.value() if self.ext == ".raw" else None,
+                display_range=self.display_range,
             )
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Failed to load image", str(exc))
             return
         self.current_loaded = loaded
+        if self.display_range is None:
+            # First file of this folder/extension: freeze the auto-picked range so
+            # every subsequent file (and this one, if reloaded) maps the same raw
+            # pixel value to the same displayed gray level instead of each image
+            # getting its own independent contrast stretch.
+            self.display_range = default_display_range(loaded.raw)
+            self._set_display_range_spins(self.display_range)
         self.canvas.set_image(loaded.display)
         self.recompute_and_redraw()
+
+    def _set_display_range_spins(self, range_: tuple[float, float]) -> None:
+        for s, v in zip((self.display_min_spin, self.display_max_spin), range_):
+            s.blockSignals(True)
+            s.setValue(v)
+            s.blockSignals(False)
+
+    def on_display_range_typed(self, _value=None) -> None:
+        lo, hi = self.display_min_spin.value(), self.display_max_spin.value()
+        self.display_range = (lo, hi)
+        if self.current_loaded is not None:
+            self.current_loaded.display = to_display_uint8(self.current_loaded.raw, lo, hi)
+            self.canvas.set_image(self.current_loaded.display)
 
     # ---------- line / rect interaction ----------
 

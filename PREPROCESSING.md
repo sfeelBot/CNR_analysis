@@ -21,8 +21,22 @@
 
 ### 공통: raw 배열과 display 배열의 분리
 - `LoadedImage.raw`: 측정에 사용하는 원본 numeric 배열 (uint16 또는 PIL이 반환한 원본 dtype). **절대 화면 표시용으로 정규화하지 않음.**
-- `LoadedImage.display`: `to_display_uint8()`로 0–255 percentile/min-max stretch한 배열, `imshow` 표시 전용.
+- `LoadedImage.display`: `to_display_uint8(raw, lo, hi)`로 `[lo, hi]` 범위를 0–255로 stretch한 배열, `imshow` 표시 전용.
 - 이 둘을 절대 섞지 않는다 — signal/background/noise 계산은 항상 `raw`에서, 화면은 항상 `display`에서.
+
+### Display range는 폴더/확장자 단위로 고정 (이미지마다 다시 계산하지 않음)
+- `(lo, hi)`를 매 이미지마다 새로 계산(percentile 등)하면, 같은 raw 픽셀 값이라도 이미지마다 다른 회색
+  밝기로 보여서 "같은 값 = 같은 밝기"가 깨짐. 이를 막기 위해 `(lo, hi)`는 **폴더(정확히는 현재 선택된
+  확장자)당 한 번만** `default_display_range()`(첫 이미지의 1/99 percentile, 평탄 이미지면 min/max로
+  fallback)로 계산해서 고정하고, 이후 모든 이미지에 동일하게 재사용한다.
+- `MainWindow.display_range`가 이 고정값을 들고 있으며, `load_image(..., display_range=self.display_range)`로
+  매 파일 로드에 전달한다. `display_range`가 `None`이면(폴더/확장자 변경 직후 첫 로드) `load_image`가
+  `default_display_range()`로 기본값을 골라주고, `MainWindow`가 그 값을 받아 고정한다.
+- 확장자를 바꾸면(`.raw`↔`.bmp`, 네이티브 값 범위가 보통 크게 다름) `display_range`를 `None`으로 리셋해
+  새 확장자에서 다시 기본값을 계산한다. 반면 raw의 width/height만 바꾸는 것은 같은 바이트를 다르게
+  reshape하는 것뿐이라 값 분포(히스토그램) 자체는 안 바뀌므로 `display_range`를 리셋하지 않는다.
+- GUI의 "Display Range" Min/Max spinbox로 사용자가 직접 덮어쓸 수 있다 (의료영상 뷰어의 window/level과
+  동일한 개념). 변경 시 디스크에서 다시 읽지 않고 이미 로드된 `raw`에서 `to_display_uint8`만 재계산.
 
 ### 확장자 추가 방법
 `image_io.py`의 `EXT_LOADERS` dict에 `{".새확장자": loader_function}` 추가. GUI 확장자 콤보박스에도 추가.
@@ -87,9 +101,11 @@ area_px = (xb - xa) * (yb - ya)   # == roi.size
 ## 5. CNR (`measurements.compute_cnr`)
 
 ```
-CNR = (signal - background_mean) / noise
+CNR = abs((signal - background_mean) / noise)
 ```
 
+- 항상 절대값으로 표시 — `signal`이 보통 라인 프로파일의 최저값이라 `background_mean`보다 작아 부호가
+  음수로 나오기 쉬운데, CNR은 대비의 "크기"를 보는 지표이므로 부호 없이 절대값으로 통일.
 - `noise == 0`이면 `ZeroDivisionError`를 내지 않고 `NaN`/`inf` 반환 + GUI에 "N/A — noise가 0" 표시.
   배치 처리 결과 테이블에서는 해당 행의 `error` 컬럼에 `"noise=0"` 기록.
 - Excel로 내보낼 때 NaN은 빈 셀로 저장됨 — "데이터 없음"이 아니라 "noise가 0이라 계산 불가"라는 뜻이므로

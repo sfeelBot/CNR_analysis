@@ -8,7 +8,7 @@
 `QSplitter` 기반 3분할:
 
 - **좌측**: 확장자 선택 `QComboBox`(`.raw` / `.bmp`) + width/height `QSpinBox` 2개(`.raw` 선택 시만 활성화) +
-  파일 목록 `QListWidget` + Prev/Next 버튼.
+  Display Range(Min/Max) `QDoubleSpinBox` 2개(화면 대비, 7절 참고) + 파일 목록 `QListWidget` + Prev/Next 버튼.
 - **중앙**: `ImageCanvas` (이미지 + 라인/사각형 오버레이) + 모드 선택 버튼 3개("Navigate"/"Draw Line"/"Draw Rect",
   `QButtonGroup`으로 상호배타).
 - **우측/하단**: `ProfilePanel`(라이브 라인 프로파일 plot) + 결과 표시 영역(아래 5절) + "Run Batch" 버튼.
@@ -127,6 +127,7 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 | `line_coord_spins[*].valueChanged` | `on_line_coords_typed` | 타이핑된 좌표를 `canvas.set_line`에 반영 |
 | `rect_coord_spins[*].valueChanged` | `on_rect_coords_typed` | 타이핑된 좌표를 `canvas.set_rect`에 반영 |
 | `run_batch_btn.clicked` | `on_run_batch` | `batch.run_batch()` 실행 → `ResultsDialog` 표시 |
+| `display_min_spin/display_max_spin.valueChanged` | `on_display_range_typed` | `self.display_range` 갱신, 현재 이미지의 `display`만 재계산(디스크 재읽기 없음) 후 `canvas.set_image` |
 
 ## 7. GUI 파라미터 ↔ 계산 함수 매핑
 
@@ -138,6 +139,7 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 | `a` spinbox | `measurements.find_signal_and_background(exclusion_margin=a)` |
 | 사각형 좌표(드래그/타이핑) | `measurements.compute_noise(rect)` |
 | Run Batch | `batch.run_batch(line, rect, exclusion_margin, width, height)` |
+| Display Min/Max | `image_io.to_display_uint8(raw, lo, hi)` — **측정에는 영향 없음**, 화면 표시만 바뀜 (PREPROCESSING.md "Display range" 절 참고) |
 
 ## 8. 배치 결과 팝업 (`gui/results_dialog.py` — `ResultsDialog`)
 
