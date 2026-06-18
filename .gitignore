@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# raw/bmp test images and exported results shouldn't be committed
+*.raw
+*.bmp
+*.xlsx
