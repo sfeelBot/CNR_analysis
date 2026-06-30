@@ -35,12 +35,31 @@ def find_signal_and_background(profile: np.ndarray, exclusion_margin: int) -> di
     hi = min(idx_min + a + 1, n)
     background_points = np.concatenate([profile[:lo], profile[hi:]])
 
-    background_mean = float(np.mean(background_points)) if background_points.size else float("nan")
+    if background_points.size:
+        background_mean = float(np.mean(background_points))
+        background_min = float(np.min(background_points))
+        background_max = float(np.max(background_points))
+        background_std = float(np.std(background_points))
+    else:
+        background_mean = background_min = background_max = background_std = float("nan")
+
+    # Stats over the WHOLE line profile (including the signal point), as opposed
+    # to background_* above which only cover the points outside the ±a exclusion
+    # window. Useful as a quick sanity check independent of the exclusion margin.
+    profile_min = float(np.min(profile)) if n else float("nan")
+    profile_max = float(np.max(profile)) if n else float("nan")
+    profile_std = float(np.std(profile)) if n else float("nan")
 
     return {
         "idx_min": idx_min,
         "signal": signal,
         "background_mean": background_mean,
+        "background_min": background_min,
+        "background_max": background_max,
+        "background_std": background_std,
+        "profile_min": profile_min,
+        "profile_max": profile_max,
+        "profile_std": profile_std,
         "background_points": background_points,
         "exclusion_lo": lo,
         "exclusion_hi": hi,
@@ -93,6 +112,12 @@ def measure(image: np.ndarray, line: tuple[Point, Point], rect: Rect, exclusion_
     return {
         "signal": sb["signal"],
         "background_mean": sb["background_mean"],
+        "background_min": sb["background_min"],
+        "background_max": sb["background_max"],
+        "background_std": sb["background_std"],
+        "profile_min": sb["profile_min"],
+        "profile_max": sb["profile_max"],
+        "profile_std": sb["profile_std"],
         "noise": noise_info["noise"],
         "noise_min_max": noise_info["noise_min_max"],
         "rect_min": noise_info["rect_min"],

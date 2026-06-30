@@ -11,15 +11,42 @@
 
 - 탭바의 **마지막 탭은 항상 `"+"` 고정 탭** (`self._plus_widget`, 빈 `QWidget`). 닫기 버튼이 없도록
   `tabBar().setTabButton(..., None)`으로 제거해 둠.
-- `"+"` 탭을 클릭하면(`tabs.currentChanged` 시그널에서 `self.tabs.widget(index) is self._plus_widget`로
-  식별) `StartupDialog`를 띄운다. 사용자가 폴더/확장자/(raw면) width·height를 선택하고 확인하면
-  `add_analysis_tab()`이 새 `AnalysisPage`를 만들어 `"+"` 탭 바로 앞에 삽입하고 그 탭으로 전환한다.
-  취소하면 `"+"` 탭에 머물지 않고 직전에 보고 있던 탭으로 복귀(`self._previous_index`에 저장해 둔 값 사용).
+- `"+"` 탭을 **실제로 클릭하면**(`tabs.tabBarClicked` 시그널 — 자세한 이유는 아래 "왜 `currentChanged`가
+  아니라 `tabBarClicked`인가" 참고) `StartupDialog`를 띄운다. 사용자가 폴더/확장자/(raw면) width·height를
+  선택하고 확인하면 `add_analysis_tab()`이 새 `AnalysisPage`를 만들어 `"+"` 탭 바로 앞에 삽입하고 그
+  탭으로 전환한다. 취소하면 `"+"` 탭에 머물지 않고 직전에 보고 있던 탭으로 복귀
+  (`self._previous_index`에 저장해 둔 값 사용, `tabs.currentChanged`로 갱신).
 - 탭은 닫기 가능(`setTabsClosable(True)`) — `"+"` 탭만 예외로 닫기 버튼이 없음. 탭을 닫으면 해당
   `AnalysisPage`를 `deleteLater()`로 정리.
 - 앱 시작 시 첫 폴더는 `main.py`가 직접 `StartupDialog`를 한 번 띄워 받아온 뒤 `MainWindow` 생성 직후
   `add_analysis_tab()`으로 첫 탭을 만든다 (이 첫 다이얼로그를 취소하면 앱 자체를 종료) — 이후 폴더
   추가는 전부 `"+"` 탭을 통해서만 이루어진다.
+
+### 왜 `currentChanged`가 아니라 `tabBarClicked`인가 (QA.md 2026-06-30 버그 참고)
+처음엔 `"+"` 탭 처리를 `tabs.currentChanged`에 연결했었는데, 이 시그널은 사용자의 실제 클릭뿐 아니라
+`removeTab()`으로 인한 Qt의 자동 재선택(예: 마지막 분석 탭을 닫거나 분리해서 `"+"`만 남으면 자동으로
+그게 현재 탭이 됨)이나 프로그램적 `setCurrentIndex()` 호출에도 똑같이 발생한다. 그 결과 "탭을 껐을 뿐인데
+모달 `StartupDialog`가 사용자 동작 없이 열려버리는" 버그가 있었다 (헤드리스 테스트에서는 무한 대기로
+발견됨). `tabBarClicked`는 실제 마우스 클릭에서만 발생하므로 이 문제가 없다. `currentChanged`는 여전히
+`_previous_index` 추적용으로만 쓴다.
+
+### 탭 분리 — 드래그해서 탭바 밖으로 빼면 새 창으로 (`gui/detachable_tab_bar.py` — `DetachableTabBar`)
+브라우저 탭과 동일한 동작: 탭을 마우스로 누른 채 탭바 영역(`self.rect()`) 밖으로 끌고 나가면 그 탭이
+별도의 최상위 창(`_FloatingAnalysisWindow`)으로 분리된다. **탭이 드래그를 따라 시각적으로 움직이지는
+않는다** (Qt 기본 reorder 기능을 켜지 않았음) — 탭바 밖으로 커서가 나가는 순간 탭이 사라지고 그 위치에
+새 창이 뜨는 방식.
+
+- `DetachableTabBar(QTabBar)`가 `mousePressEvent`로 드래그 시작 탭 인덱스를 기억하고, `mouseMoveEvent`에서
+  커서가 `self.rect()`를 벗어나면 `tab_detach_requested(index, global_pos)`를 emit. `mouseReleaseEvent`에서
+  드래그 상태 리셋.
+- `MainWindow.on_tab_detach_requested`: `"+"` 탭이면 무시. 아니면 `tabs.removeTab(index)`로 탭에서 떼어낸
+  뒤 `_float_tab()`이 `_FloatingAnalysisWindow(owner=self, page=widget, title=...)`를 만들어
+  `global_pos` 근처(드래그가 빠져나간 지점)에 띄운다 — `QMainWindow.setCentralWidget()`이 위젯을 자동으로
+  재부모화하므로 별도 `setParent` 불필요.
+- `_FloatingAnalysisWindow`는 `MainWindow`가 들고 있는 `self._floating_windows` 리스트에 추가되어
+  레퍼런스가 유지된다(안 그러면 GC돼서 바로 닫힘). `closeEvent`에서 그 리스트에서 스스로를 제거.
+- 분리된 창은 재도킹(다시 탭으로 합치기) 기능은 없음 — 닫으면 그냥 사라짐. 메인 창을 닫아도 분리된 창은
+  독립적인 최상위 창이라 Qt 기본 동작상 그대로 떠 있을 수 있음(별도 처리 안 함).
 
 ## 1. AnalysisPage 레이아웃 (`gui/analysis_page.py` — `AnalysisPage`, 탭 하나의 내용)
 
@@ -130,7 +157,9 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 - `a` (제외 margin) `QSpinBox` — 변경 시 현재 라인의 프로파일을 즉시 재계산.
 - 라인 좌표 `QDoubleSpinBox` 4개(x0,y0,x1,y1), 사각형 좌표 4개(x0,y0,x1,y1) — 드래그로 그린 값이 자동
   반영되고, 직접 타이핑해서 미세 조정도 가능 (양방향 동기화, 무한 루프 방지를 위해 갱신 중 `blockSignals` 사용).
-- 읽기 전용 라벨: Signal, Background mean, Noise(std), Noise(max-min), Rect min, Rect mean, Area(px), CNR.
+- 읽기 전용 라벨: Signal, Background mean, Background min/max/std, Profile min/max/std, Noise(std),
+  Noise(max-min), Rect min, Rect mean, Area(px), CNR. 앞쪽(Signal~Profile std)은 라인이 있을 때만,
+  Noise~Area는 사각형이 있을 때만, CNR은 둘 다 있을 때만 값이 채워지고 그 외엔 `"-"`.
 - "Run Batch" 버튼: 라인과 사각형이 모두 설정된 경우에만 활성화.
 
 ## 6. Signal/Slot 매핑
@@ -155,8 +184,10 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 
 | 시그널 | 슬롯 | 효과 |
 |---|---|---|
-| `tabs.currentChanged` | `on_current_tab_changed` | `"+"` 탭으로 전환됐는지 확인, 맞으면 `_handle_plus_clicked()` |
+| `tabs.currentChanged` | `on_current_tab_changed` | `_previous_index` 갱신만 (다이얼로그는 열지 않음 — 위 "왜 `tabBarClicked`인가" 참고) |
+| `tabs.tabBarClicked` | `on_tab_bar_clicked` | `"+"` 탭을 실제로 클릭했는지 확인, 맞으면 `_handle_plus_clicked()` |
 | `tabs.tabCloseRequested` | `on_tab_close_requested` | 해당 `AnalysisPage` 탭 제거 + `deleteLater()` (`"+"` 탭은 무시) |
+| `tabs.tabBar().tab_detach_requested` | `on_tab_detach_requested` | 탭을 떼어내 `_float_tab()`으로 새 최상위 창에 띄움 (`"+"` 탭은 무시) |
 
 ## 7. GUI 파라미터 ↔ 계산 함수 매핑
 
@@ -172,7 +203,8 @@ update_profile(profile: np.ndarray, idx_min: int, exclusion_lo: int, exclusion_h
 
 ## 8. 배치 결과 팝업 (`gui/results_dialog.py` — `ResultsDialog`)
 
-- `QTableWidget` 컬럼: filename, signal, background_mean, noise, noise_min_max, rect_min, rect_mean, area_px, cnr, error.
+- `QTableWidget` 컬럼: filename, signal, background_mean, background_min, background_max, background_std,
+  profile_min, profile_max, profile_std, noise, noise_min_max, rect_min, rect_mean, area_px, cnr, error.
 - `error`가 있는 행은 배경색으로 강조(예: 빨간 배경) — 값이 비어 있는 게 아니라 실패했다는 것을 표시.
 - "Export to Excel" 버튼 → `QFileDialog.getSaveFileName` → `export.export_to_xlsx`. 성공/실패 각각
   `QMessageBox.information`/`critical`로 안내.

@@ -4,17 +4,37 @@ Each tab hosts an independent AnalysisPage (its own file list, canvas, profile
 panel, results, batch button -- nothing is shared between tabs). The last tab
 is a permanent "+" placeholder; selecting it opens StartupDialog to pick a new
 folder/extension/dimensions and inserts a real AnalysisPage tab before it.
+Dragging a real tab out of the tab bar detaches it into its own floating
+top-level window (browser-tab-style), via DetachableTabBar.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+from PyQt5.QtCore import QPoint
 from PyQt5.QtWidgets import QMainWindow, QWidget, QTabWidget, QTabBar, QDialog
 
 from gui.analysis_page import AnalysisPage
 from gui.startup_dialog import StartupDialog
+from gui.detachable_tab_bar import DetachableTabBar
 
 PLUS_TAB_LABEL = "+"
+
+
+class _FloatingAnalysisWindow(QMainWindow):
+    """Top-level window hosting a single detached AnalysisPage tab."""
+
+    def __init__(self, owner: "MainWindow", page: QWidget, title: str):
+        super().__init__()
+        self._owner = owner
+        self.setWindowTitle(f"{title} — CNR Measurement Tool")
+        self.setCentralWidget(page)
+        self.resize(1300, 850)
+
+    def closeEvent(self, event) -> None:
+        if self in self._owner._floating_windows:
+            self._owner._floating_windows.remove(self)
+        super().closeEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -24,17 +44,26 @@ class MainWindow(QMainWindow):
         self.resize(1300, 850)
 
         self.tabs = QTabWidget()
+        self.tabs.setTabBar(DetachableTabBar(self.tabs))
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.on_tab_close_requested)
+        self.tabs.tabBar().tab_detach_requested.connect(self.on_tab_detach_requested)
         self.setCentralWidget(self.tabs)
 
         self._previous_index = -1
         self._plus_widget = QWidget()
+        self._floating_windows: list[_FloatingAnalysisWindow] = []
         self._add_plus_tab()
 
         # Connected after the plus tab exists so the initial addTab doesn't fire
         # the handler before self._plus_widget is set.
         self.tabs.currentChanged.connect(self.on_current_tab_changed)
+        # tabBarClicked (not currentChanged) opens the dialog: it only fires on an
+        # actual user click, never on a programmatic setCurrentIndex or on Qt's
+        # automatic re-selection after removeTab() leaves only the "+" tab behind
+        # (e.g. after closing/detaching the last real tab) -- using currentChanged
+        # for this would auto-open a blocking modal dialog with no user gesture.
+        self.tabs.tabBarClicked.connect(self.on_tab_bar_clicked)
 
     # ---------- public API ----------
 
@@ -60,12 +89,13 @@ class MainWindow(QMainWindow):
         return self.tabs.widget(index) is self._plus_widget
 
     def on_current_tab_changed(self, index: int) -> None:
-        if index == -1:
-            return
-        if self._is_plus_tab(index):
-            self._handle_plus_clicked()
+        if index == -1 or self._is_plus_tab(index):
             return
         self._previous_index = index
+
+    def on_tab_bar_clicked(self, index: int) -> None:
+        if self._is_plus_tab(index):
+            self._handle_plus_clicked()
 
     def _handle_plus_clicked(self) -> None:
         dialog = StartupDialog(self)
@@ -82,3 +112,24 @@ class MainWindow(QMainWindow):
         self.tabs.removeTab(index)
         if widget is not None:
             widget.deleteLater()
+
+    # ---------- tab detach (drag out of bar -> floating window) ----------
+
+    def on_tab_detach_requested(self, index: int, global_pos: QPoint) -> None:
+        if self._is_plus_tab(index):
+            return
+        widget = self.tabs.widget(index)
+        if widget is None:
+            return
+        title = self.tabs.tabText(index)
+        self.tabs.removeTab(index)
+        self._float_tab(widget, title, global_pos)
+
+    def _float_tab(self, widget: QWidget, title: str, global_pos: QPoint) -> None:
+        floating = _FloatingAnalysisWindow(self, widget, title)
+        # Centered roughly on the point where the drag left the tab bar, so the
+        # new window appears where the user dragged it to (typically beside the
+        # main window) rather than stacked exactly on top of it.
+        floating.move(global_pos.x() - 100, max(global_pos.y() - 40, 0))
+        floating.show()
+        self._floating_windows.append(floating)

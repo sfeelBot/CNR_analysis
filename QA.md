@@ -37,6 +37,25 @@ QA subagent가 코드 리뷰 + 실제 실행 테스트(헤드리스, `QT_QPA_PLA
   reload가 실행됨(테스트 코드에서 유의).
 - 상태: 수정완료
 
+## [2026-06-30] 마지막 탭을 닫거나 분리하면 "+" 탭이 자동 선택되며 모달 다이얼로그가 사용자 클릭 없이 열림
+- 증상: 실제 분석 탭이 1개만 남은 상태에서 그 탭을 닫거나(탭 닫기 버튼) 드래그로 분리하면, `QTabWidget`이
+  남은 유일한 탭인 `"+"`를 자동으로 현재 탭으로 만든다. 이게 `currentChanged` 시그널을 발생시켜 사용자가
+  클릭한 적도 없는데 `StartupDialog`(모달)가 열려버림. 헤드리스 테스트에서는 모달 `exec_()`가 응답 없는
+  상태로 무한 대기해 테스트 자체가 멈춤 — 실사용 환경에서도 "탭을 껐을 뿐인데 갑자기 폴더 선택 창이 뜨는"
+  의도치 않은 동작으로 나타날 것.
+- 원인: `"+"` 탭 클릭 처리를 `tabs.currentChanged`에 연결해뒀는데, 이 시그널은 사용자의 실제 클릭뿐 아니라
+  `removeTab()`로 인한 Qt의 자동 재선택, `setCurrentIndex()` 같은 프로그램적 변경에도 동일하게 발생한다 —
+  "사용자가 `+`를 눌렀다"와 "다른 이유로 `+`가 선택됐다"를 구분하지 못함.
+- 재현 방법: 헤드리스로 분석 탭 1개만 있는 `MainWindow`를 만들고 그 탭을 `on_tab_detach_requested()`(또는
+  `on_tab_close_requested()`)로 제거 → 별도 모킹 없이 실행하면 내부에서 `StartupDialog().exec_()`가 멈춤.
+- 수정 내용: `"+"` 탭 클릭 처리를 `tabs.currentChanged`에서 `tabs.tabBarClicked`로 이전. `tabBarClicked`는
+  실제 마우스 클릭에서만 발생하고 프로그램적 변경/자동 재선택에는 발생하지 않으므로 정확히 "사용자가 `+`를
+  눌렀을 때"만 다이얼로그가 뜬다. `currentChanged`는 `_previous_index` 추적(취소 시 복귀용)에만 남겨둠.
+  헤드리스 테스트로 (a) 마지막 탭 분리 시 다이얼로그가 안 열리는 것, (b) 프로그램적 `setCurrentIndex`로
+  `+`가 선택돼도 다이얼로그가 안 열리는 것, (c) `tabBarClicked`를 직접 호출하면 다이얼로그가 여전히 여는
+  것을 모두 확인.
+- 상태: 수정완료
+
 ## 환경 한계 (앱 버그 아님, 기록만)
 - `QT_QPA_PLATFORM=offscreen` 헤드리스 환경에서 `QMessageBox.critical`/`.warning` 호출이 Python 프로세스를
   세그폴트시킴 (앱 코드와 무관, 이 PyQt5/오프스크린 플랫폼 조합 자체의 한계로 보임 — `QMessageBox.critical(None,...)`

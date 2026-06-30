@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (
 )
 
 import batch
-from image_io import load_image, to_display_uint8, default_display_range
+from image_io import load_image, to_display_uint8
 from measurements import sample_line_profile, find_signal_and_background, compute_noise, compute_cnr
 from gui.image_canvas import ImageCanvas
 from gui.profile_panel import ProfilePanel
@@ -160,6 +160,12 @@ class AnalysisPage(QWidget):
         results_form = QFormLayout(results_box)
         self.signal_label = QLabel("-")
         self.background_label = QLabel("-")
+        self.background_min_label = QLabel("-")
+        self.background_max_label = QLabel("-")
+        self.background_std_label = QLabel("-")
+        self.profile_min_label = QLabel("-")
+        self.profile_max_label = QLabel("-")
+        self.profile_std_label = QLabel("-")
         self.noise_label = QLabel("-")
         self.noise_min_max_label = QLabel("-")
         self.rect_min_label = QLabel("-")
@@ -168,6 +174,12 @@ class AnalysisPage(QWidget):
         self.cnr_label = QLabel("-")
         results_form.addRow("Signal", self.signal_label)
         results_form.addRow("Background mean", self.background_label)
+        results_form.addRow("Background min", self.background_min_label)
+        results_form.addRow("Background max", self.background_max_label)
+        results_form.addRow("Background std", self.background_std_label)
+        results_form.addRow("Profile min", self.profile_min_label)
+        results_form.addRow("Profile max", self.profile_max_label)
+        results_form.addRow("Profile std", self.profile_std_label)
         results_form.addRow("Noise (std)", self.noise_label)
         results_form.addRow("Noise (max-min)", self.noise_min_max_label)
         results_form.addRow("Rect min", self.rect_min_label)
@@ -288,11 +300,13 @@ class AnalysisPage(QWidget):
             return
         self.current_loaded = loaded
         if self.display_range is None:
-            # First file of this folder/extension: freeze the auto-picked range so
-            # every subsequent file (and this one, if reloaded) maps the same raw
-            # pixel value to the same displayed gray level instead of each image
-            # getting its own independent contrast stretch.
-            self.display_range = default_display_range(loaded.raw)
+            # First file of this folder/extension: freeze a default range so every
+            # subsequent file (and this one, if reloaded) maps the same raw pixel
+            # value to the same displayed gray level instead of each image getting
+            # its own independent contrast stretch. Default is the fixed (0, 255)
+            # range rather than a per-image percentile; users can override via the
+            # Display Range spinboxes.
+            self.display_range = (0.0, 255.0)
             self._set_display_range_spins(self.display_range)
         self.canvas.set_image(loaded.display)
         self.recompute_and_redraw()
@@ -356,6 +370,8 @@ class AnalysisPage(QWidget):
         a = self.margin_spin.value()
 
         signal = background_mean = noise = noise_min_max = rect_min = rect_mean = cnr = float("nan")
+        background_min = background_max = background_std = float("nan")
+        profile_min = profile_max = profile_std = float("nan")
         area_px = None
 
         if line is not None:
@@ -363,6 +379,12 @@ class AnalysisPage(QWidget):
             sb = find_signal_and_background(profile, a)
             signal = sb["signal"]
             background_mean = sb["background_mean"]
+            background_min = sb["background_min"]
+            background_max = sb["background_max"]
+            background_std = sb["background_std"]
+            profile_min = sb["profile_min"]
+            profile_max = sb["profile_max"]
+            profile_std = sb["profile_std"]
             self.profile_panel.update_profile(
                 profile, sb["idx_min"], sb["exclusion_lo"], sb["exclusion_hi"]
             )
@@ -380,6 +402,12 @@ class AnalysisPage(QWidget):
 
         self.signal_label.setText("-" if line is None else f"{signal:.4f}")
         self.background_label.setText("-" if line is None else f"{background_mean:.4f}")
+        self.background_min_label.setText("-" if line is None else f"{background_min:.4f}")
+        self.background_max_label.setText("-" if line is None else f"{background_max:.4f}")
+        self.background_std_label.setText("-" if line is None else f"{background_std:.4f}")
+        self.profile_min_label.setText("-" if line is None else f"{profile_min:.4f}")
+        self.profile_max_label.setText("-" if line is None else f"{profile_max:.4f}")
+        self.profile_std_label.setText("-" if line is None else f"{profile_std:.4f}")
         self.noise_label.setText("-" if rect is None or np.isnan(noise) else f"{noise:.4f}")
         self.noise_min_max_label.setText(
             "-" if rect is None or np.isnan(noise_min_max) else f"{noise_min_max:.4f}"
